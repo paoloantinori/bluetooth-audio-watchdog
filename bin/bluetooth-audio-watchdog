@@ -118,7 +118,8 @@ emit() {
     log "$log_msg"
     echo "$log_msg" | systemd-cat -t bt-audio-watchdog -p warning 2>/dev/null || true
     if (( send )); then
-        notify-send -u critical -a "Bluetooth" "Audio device not working: $display" "$notif_msg" 2>/dev/null || true
+        # Fixed replace-id: update the existing notification instead of stacking
+        notify-send -r 4500 -u critical -a "Bluetooth" "Audio device not working: $display" "$notif_msg" 2>/dev/null || true
     fi
 }
 
