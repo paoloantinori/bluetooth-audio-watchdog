@@ -25,7 +25,8 @@ THRESHOLD="${BT_WATCHDOG_THRESHOLD:-15}"
 POLL="${BT_WATCHDOG_POLL:-3}"
 AUTOFIX="${BT_WATCHDOG_AUTOFIX:-0}"
 
-declare -A pending  # device_path -> epoch first seen as stuck
+declare -A pending   # device_path -> epoch first seen as stuck
+declare -A notified  # device_path -> branch already notified (edge trigger)
 
 log() { echo "[bt-watchdog] $*" >&2; }
 
@@ -143,7 +144,16 @@ gather_and_alert() {
         | grep -F "$mac" | grep -c "avdtp")
 
     branch=$(classify "$bredr_paired" "$le_paired" "$avdtp_err" "$avdtp_any")
-    emit "$branch" "$mac" "$name" 1
+
+    # Edge-triggered desktop notification: fire on onset and on branch change
+    # only. notify-send -r replaces a LIVE notification, but a critical banner
+    # never expires; once the user dismisses it the next emit starts a new one
+    # and the message tray fills with one copy per dismissal. Journal logging
+    # (inside emit) keeps its per-THRESHOLD cadence either way.
+    local send=1
+    [[ "${notified[$path]:-}" == "$branch" ]] && send=0
+    notified[$path]=$branch
+    emit "$branch" "$mac" "$name" "$send"
 
     if [[ "$AUTOFIX" == 1 ]]; then
         log "AUTOFIX: Disconnect $mac"
@@ -213,7 +223,7 @@ while :; do
         [[ -z "$path" ]] && continue
         if is_connected "$path" && is_audio "$path"; then
             if has_transport "$path"; then
-                unset "pending[$path]" 2>/dev/null || true
+                unset "pending[$path]" "notified[$path]" 2>/dev/null || true
             else
                 if [[ -z "${pending[$path]:-}" ]]; then
                     pending[$path]=$now
@@ -223,7 +233,7 @@ while :; do
                 fi
             fi
         else
-            unset "pending[$path]" 2>/dev/null || true
+            unset "pending[$path]" "notified[$path]" 2>/dev/null || true
         fi
     done < <(list_devices)
     sleep "$POLL"
